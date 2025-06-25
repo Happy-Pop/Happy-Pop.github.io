@@ -509,7 +509,7 @@ document.getElementById('submit-btn').addEventListener('click', async function()
     submitBtn.textContent = 'Processing...';
 
     try {
-        const response = await fetch('http://localhost:5678/webhook/resume-miner', { //n8n URL
+        const response = await fetch('https://robinli.app.n8n.cloud/webhook/resume-miner', { //n8n URL
             method: 'POST',
             body: formData
         });
