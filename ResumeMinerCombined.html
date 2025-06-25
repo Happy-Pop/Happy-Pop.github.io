@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Resume Miner</title>
+    <link rel="icon" href="/favicon.ico">
+    <!-- FontAwesome 用于文件图标 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+<style>
+/* Reset & base styles */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+    background: linear-gradient(135deg, #f8fafc 0%, #e9eff5 100%);
+    color: #222;
+    overflow: hidden; /* 禁止全局滚动 */
+}
+
+/* Topbar */
+.topbar {
+    width: 100%;
+    height: 56px;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    display: flex;
+    align-items: center;
+    padding-left: 32px;
+    font-size: 22px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 100;
+}
+
+.logo-title {
+    color: #102040;
+    font-weight: 700;
+}
+
+/* Main layout */
+.main-container {
+    display: flex;
+    flex-direction: row;
+    width: 100vw;
+    height: 100vh;
+    margin-top: 56px; /* height of topbar */
+    box-sizing: border-box;
+    background: transparent;
+}
+
+/* Sidebar */
+.sidebar {
+    width: 270px;
+    min-width: 270px;
+    max-width: 270px;
+    background: #102040;
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 32px 0 8px 0; /* 底部padding由24px缩小为8px */
+    box-shadow: 2px 0 12px 0 rgba(16,32,64,0.06);
+    position: relative;
+    height: 100vh; /* 保证侧边栏高度撑满视口 */
+}
+
+.sidebar-content {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 36px;
+    padding: 0 24px;
+    overflow-y: auto; /* 仅侧边栏内容可滚动 */
+    max-height: calc(100vh - 56px - 80px); /* 顶栏+底部按钮高度 */
+}
+
+.upload-group {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+button, .sidebar button {
+    padding: 10px 24px;
+    font-size: 17px;
+    font-weight: 500;
+    border: none;
+    border-radius: 12px;
+    background: linear-gradient(90deg, #0071e3 0%, #2997ff 100%);
+    color: #fff;
+    box-shadow: 0 2px 8px 0 rgba(0,0,0,0.06);
+    cursor: pointer;
+    outline: none;
+    transition: background 0.25s cubic-bezier(.4,0,.2,1), transform 0.15s cubic-bezier(.4,0,.2,1), box-shadow 0.2s;
+    margin-bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+button:hover, button:focus {
+    background: linear-gradient(90deg, #2997ff 0%, #0071e3 100%);
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 6px 18px 0 rgba(41,151,255,0.10);
+}
+
+.submit-bottom {
+    margin: 0 24px 24px;
+    align-self: stretch;
+    min-height: 44px;
+}
+.submit-bottom button {
+    width: 100%;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 22px;
+    font-weight: 400;
+    letter-spacing: 0.5px;
+}
+
+input[type="file"] {
+    display: none;
+}
+
+/* File list as scrollable table with delete */
+.file-list-table {
+    margin-top: 6px;
+    font-size: 15px;
+    color: #e0e6ed;
+    word-break: break-all;
+    max-height: 120px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.04);
+    padding-right: 4px;
+}
+.file-list-table-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 4px;
+    border-bottom: 1px solid #23305a22;
+    min-width: 0;
+}
+.file-list-table-row:last-child {
+    border-bottom: none;
+}
+.file-list-table-filename {
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.file-list-table-delete {
+    color: #e53935;
+    background: #fff;
+    border: none;
+    cursor: pointer;
+    font-size: 15px;
+    margin-left: 8px;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, box-shadow 0.15s;
+    box-shadow: 0 1px 3px 0 rgba(229,57,53,0.08);
+}
+.file-list-table-delete:hover {
+    background: #ffeaea;
+    box-shadow: 0 2px 6px 0 rgba(229,57,53,0.13);
+}
+
+
+
+/* Main content area */
+.content {
+    flex: 1 1 auto;
+    background: #f8fafc;
+    padding: 48px 48px 32px 48px;
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto; /* 仅主内容区可滚动 */
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    position: relative;
+    max-height: calc(100vh - 56px); /* 顶栏高度 */
+}
+
+#progress {
+    width: 100%;
+    margin-bottom: 18px;
+    font-size: 16px;
+    color: #0071e3;
+    display: none;
+}
+
+#ai-error-detail {
+    color: #e53935;
+    background: rgba(255, 235, 238, 0.85);
+    border-radius: 10px;
+    padding: 14px 18px;
+    font-size: 15px;
+    margin-top: 10px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px 0 rgba(229,57,53,0.08);
+    display: none;
+    animation: fadeIn 0.5s;
+    max-width: 700px;
+    word-break: break-all;
+}
+
+#ai-error-detail[style*="display: block"], #ai-error-detail[style*="display:"] {
+    display: block !important;
+    animation: fadeIn 0.5s;
+}
+
+#ai-error-detail:empty {
+    display: none !important;
+}
+
+#result-table {
+    width: 100%;
+    margin-top: 18px;
+    margin-bottom: 18px;
+    overflow-x: auto;
+}
+
+#result-table table,
+.ai-result-table {
+    border-collapse: collapse;
+    width: 100%;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px 0 rgba(0,0,0,0.04);
+    overflow: hidden;
+    min-width: 800px; /* 让表格可横向滚动 */
+}
+
+#result-table th, #result-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid #e0e6ed;
+    text-align: left;
+    font-size: 15px;
+    line-height: 1.2;
+    height: 32px;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#result-table th {
+    background: #f5f7fa;
+    color: #0071e3;
+    font-weight: 600;
+}
+
+#result-table tr:last-child td {
+    border-bottom: none;
+}
+
+#download-section {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    animation: fadeIn 0.5s;
+    gap: 8px;
+    position: fixed;
+    right: 40px;
+    bottom: 32px;
+    z-index: 200;
+    background: #fff;
+    box-shadow: 0 2px 12px 0 rgba(0,0,0,0.10);
+    border-radius: 12px;
+    padding: 16px 20px;
+    min-width: 220px;
+}
+
+#excel-filename {
+    font-size: 15px;
+    color: #555;
+    margin-bottom: 4px;
+    word-break: break-all;
+}
+
+#download-btn {
+    min-width: 140px;
+    align-self: flex-start;
+}
+
+/* Animations */
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(16px);}
+    to { opacity: 1; transform: translateY(0);}
+}
+
+/* Responsive design */
+@media (max-width: 900px) {
+    .main-container {
+        flex-direction: column;
+    }
+    .sidebar {
+        flex-direction: row;
+        width: 100vw;
+        min-width: 0;
+        height: auto;
+        padding: 16px 0 0 0;
+        box-shadow: 0 2px 8px rgba(16,32,64,0.06);
+    }
+    .sidebar-content {
+        flex-direction: row;
+        gap: 24px;
+        padding: 0 12px;
+    }
+    .submit-bottom {
+        margin: 16px 12px 16px 12px;
+    }
+    .content {
+        padding: 24px 8vw 18px 8vw;
+    }
+}
+
+@media (max-width: 600px) {
+    .main-container {
+        flex-direction: column;
+    }
+    .sidebar {
+        width: 100vw;
+        min-width: 0;
+        padding: 10px 0 0 0;
+    }
+    .sidebar-content {
+        flex-direction: column;
+        gap: 18px;
+        padding: 0 8px;
+    }
+    .submit-bottom {
+        position: static;
+        margin: 12px 8px 0 8px;
+    }
+    .content {
+        padding: 14px 2vw 10px 2vw;
+    }
+    button, .sidebar button {
+        width: 100%;
+        font-size: 16px;
+        padding: 10px 0;
+    }
+    #result-table th, #result-table td {
+        padding: 8px 6px;
+        font-size: 13px;
+    }
+}
+
+</style>
+<!-- SheetJS (xlsx) for Excel preview -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+    <!-- 顶部标题栏 -->
+    <header class="topbar">
+        <span class="logo-title">Resume Miner</span>
+    </header>
+    <div class="main-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="sidebar-content">
+                <!-- 上传区域 -->
+                <div class="upload-group">
+                    <button type="button" id="resume-btn"><i class="fa-regular fa-file-lines"></i> Upload Resume</button>
+                    <input type="file" id="resume-upload" multiple accept=".pdf,.docx" style="display:none;">
+                    <!-- 文件列表为可滑动表格，支持删除 -->
+                    <div id="resume-files" class="file-list-table"></div>
+                    <button type="button" id="jd-btn"><i class="fa-solid fa-briefcase"></i> Upload JD</button>
+                    <input type="file" id="jd-upload" accept=".pdf" style="display:none;">
+                    <div id="jd-file" class="file-list-table"></div>
+                    <!-- Instruction 输入栏 -->
+                    <label for="instruction-input" style="margin-top:12px; color:#e0e6ed; font-size:15px; display:block;">Instruction (optional):</label>
+                    <textarea id="instruction-input" rows="6" placeholder="Enter instruction for the model..." style="margin-top:6px; border-radius:8px; border:1px solid #cfd8dc; padding:8px; font-size:15px; resize:vertical; width:100%; background:#fff; color:#222; box-sizing:border-box; min-height:96px; max-width:100%;"></textarea>
+                </div>
+                <!-- 错误栏放在模型输入栏下面 -->
+                <div id="ai-error-detail" style="color: red; white-space: pre-wrap; display: none;"></div>
+            </div>
+            <!-- 提交按钮固定在侧边栏底部 -->
+            <button type="button" id="submit-btn" class="submit-bottom">Submit</button>
+        </aside>
+        <!-- 主内容区 -->
+        <main class="content">
+            <div id="progress" style="display:none;"></div>
+            <div id="result-table"></div>
+            <div id="download-section" style="display:none;">
+                <span id="excel-filename"></span>
+                <button type="button" id="download-btn">Download Excel</button>
+            </div>
+        </main>
+    </div>
+<script>
+// 绑定上传按钮，触发文件选择
+document.getElementById('resume-btn').addEventListener('click', function() {
+    document.getElementById('resume-upload').click();
+});
+document.getElementById('jd-btn').addEventListener('click', function() {
+    document.getElementById('jd-upload').click();
+});
+
+/**
+ * 显示已选择的简历文件，每行一个，带删除按钮
+ */
+function renderResumeFiles() {
+    const input = document.getElementById('resume-upload');
+    const fileListDiv = document.getElementById('resume-files');
+    const files = Array.from(input.files);
+
+    fileListDiv.innerHTML = '';
+    files.forEach((file, idx) => {
+        const row = document.createElement('div');
+        row.className = 'file-list-table-row';
+
+        // 文件名（超长省略，最多10字符）
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'file-list-table-filename';
+        nameSpan.title = file.name;
+        nameSpan.textContent = file.name.length > 10 ? file.name.slice(0, 10) + '...' : file.name;
+
+        // 删除按钮
+        const delBtn = document.createElement('button');
+        delBtn.className = 'file-list-table-delete';
+        delBtn.type = 'button';
+        delBtn.innerHTML = '<i class="fa fa-times"></i>';
+        delBtn.onclick = function(e) {
+            e.stopPropagation();
+            // 移除该文件并重建FileList
+            const dt = new DataTransfer();
+            files.forEach((f, i) => {
+                if (i !== idx) dt.items.add(f);
+            });
+            input.files = dt.files;
+            renderResumeFiles();
+        };
+
+        row.appendChild(nameSpan);
+        row.appendChild(delBtn);
+        fileListDiv.appendChild(row);
+    });
+}
+
+// 监听简历文件选择
+document.getElementById('resume-upload').addEventListener('change', renderResumeFiles);
+
+// Show selected JD file name
+document.getElementById('jd-upload').addEventListener('change', function() {
+    const file = this.files[0];
+    document.getElementById('jd-file').textContent = file ? `Selected: ${file.name}` : '';
+});
+
+
+
+
+// Submit button click event: upload files to backend
+document.getElementById('submit-btn').addEventListener('click', async function() {
+    const resumeInput = document.getElementById('resume-upload');
+    const jdInput = document.getElementById('jd-upload');
+    if (!resumeInput.files.length) {
+        alert('Please select at least one resume file.');
+        return;
+    }
+    if (!jdInput.files.length) {
+        alert('Please select a JD file.');
+        return;
+    }
+
+    const formData = new FormData();
+    // 按照 Resume_0, Resume_1, ... 命名简历文件
+    Array.from(resumeInput.files).forEach((file, idx) => {
+        formData.append(`Resume_${idx}`, file);
+    });
+    // JD 文件命名为 Job_Description
+    formData.append('Job_Description', jdInput.files[0]);
+    // Instruction 作为文本文件传递（无论是否为空都传，空则为NIL）
+    let instructionValue = document.getElementById('instruction-input').value;
+    if (!instructionValue || instructionValue.trim().length === 0) {
+        instructionValue = 'NIL';
+    }
+    const instructionBlob = new Blob([instructionValue], { type: 'text/plain' });
+    formData.append('Instruction', instructionBlob, 'instruction.txt');
+
+    // Disable button to prevent duplicate submissions
+    const submitBtn = document.getElementById('submit-btn');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Processing...';
+
+    try {
+        const response = await fetch('http://localhost:5678/webhook/resume-miner', { //n8n URL
+            method: 'POST',
+            body: formData
+        });
+
+        // 清除并隐藏错误栏
+        const aiErrorDetail = document.getElementById('ai-error-detail');
+        aiErrorDetail.textContent = '';
+        aiErrorDetail.style.display = 'none';
+
+        // 检查响应类型
+        const contentType = response.headers.get('Content-Type') || '';
+        if (response.ok && (contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') || contentType.includes('application/octet-stream'))) {
+            // 处理二进制 xlsx 文件
+            const blob = await response.blob();
+
+            // 尝试从 Content-Disposition 获取文件名
+            let filename = 'result.xlsx';
+            const disposition = response.headers.get('Content-Disposition');
+            if (disposition && disposition.includes('filename=')) {
+                const match = disposition.match(/filename="?([^"]+)"?/);
+                if (match && match[1]) {
+                    filename = decodeURIComponent(match[1]);
+                }
+            }
+
+            // 生成下载链接
+            const url = URL.createObjectURL(blob);
+            document.getElementById('excel-filename').textContent = `Generated file: ${filename}`;
+            const downloadBtn = document.getElementById('download-btn');
+            downloadBtn.onclick = function() {
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            };
+            document.getElementById('download-section').style.display = '';
+
+            // 解析Excel并渲染为HTML表格
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                // 默认显示第一个sheet
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const html = XLSX.utils.sheet_to_html(worksheet, {header: "", editable: false});
+                document.getElementById('result-table').innerHTML = html;
+            };
+            reader.readAsArrayBuffer(blob);
+        } else {
+            // 不是二进制，尝试解析为JSON或文本
+            let result;
+            let isJson = false;
+            const text = await response.text();
+            try {
+                result = JSON.parse(text);
+                isJson = true;
+            } catch (e) {
+                result = text;
+            }
+
+            // 处理 n8n 返回的内容
+            if (response.ok) {
+                // 如果有table_html，显示表格
+                if (isJson && result.table_html) {
+                    document.getElementById('result-table').innerHTML = result.table_html;
+                } else if (isJson && result.message) {
+                    document.getElementById('result-table').innerHTML = '';
+                    document.getElementById('excel-filename').textContent = result.message || 'Success';
+                } else if (!isJson && typeof result === 'string') {
+                    document.getElementById('result-table').innerHTML = `<pre>${result}</pre>`;
+                } else {
+                    document.getElementById('result-table').innerHTML = '';
+                    aiErrorDetail.textContent = 'Unknown response from server.';
+                    aiErrorDetail.style.display = '';
+                }
+                document.getElementById('download-section').style.display = 'none';
+            } else {
+                // 错误响应
+                let errorMsg = '';
+                if (isJson && result.error) {
+                    errorMsg = result.error;
+                } else if (isJson && result.message) {
+                    errorMsg = result.message;
+                } else if (!isJson && typeof result === 'string') {
+                    errorMsg = result;
+                } else {
+                    errorMsg = 'Upload failed';
+                }
+                alert(errorMsg);
+                document.getElementById('download-section').style.display = 'none';
+                aiErrorDetail.textContent = errorMsg;
+                aiErrorDetail.style.display = '';
+            }
+        }
+    } catch (err) {
+        alert('Network or server error: ' + err);
+        document.getElementById('download-section').style.display = 'none';
+        const aiErrorDetail = document.getElementById('ai-error-detail');
+        aiErrorDetail.textContent = '';
+        aiErrorDetail.style.display = 'none';
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+    }
+});
+</script>
+</body>
+</html>
