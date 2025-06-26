@@ -594,7 +594,7 @@ document.getElementById('submit-btn').addEventListener('click', async function()
             resumeForm.append('Resume', resumeFile);
             resumeForm.append('JD_Result', new Blob([JSON.stringify(jdJson)], { type: 'application/json' }), 'jd_result.json');
 
-            const resumeResp = await fetch('https://robinli.app.n8n.cloud/webhook-test/resume', {
+            const resumeResp = await fetch('https://robinli.app.n8n.cloud/webhook/resume', {
                 method: 'POST',
                 body: resumeForm
             });
