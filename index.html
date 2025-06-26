@@ -406,6 +406,7 @@ input[type="file"] {
         <!-- 主内容区 -->
         <main class="content">
             <div id="progress" style="display:none;"></div>
+            <div id="jd-result"></div>
             <div id="result-table"></div>
             <div id="download-section" style="display:none;">
                 <span id="excel-filename"></span>
@@ -475,10 +476,24 @@ document.getElementById('jd-upload').addEventListener('change', function() {
 
 
 
-// Submit button click event: upload files to backend
+/**
+ * Submit button click event: upload files to backend (progress bar version, no JD result display)
+ */
 document.getElementById('submit-btn').addEventListener('click', async function() {
     const resumeInput = document.getElementById('resume-upload');
     const jdInput = document.getElementById('jd-upload');
+    const aiErrorDetail = document.getElementById('ai-error-detail');
+    const submitBtn = document.getElementById('submit-btn');
+
+    // 清空上次结果
+    document.getElementById('result-table').innerHTML = '';
+    document.getElementById('download-section').style.display = 'none';
+    document.getElementById('excel-filename').textContent = '';
+    aiErrorDetail.textContent = '';
+    aiErrorDetail.style.display = 'none';
+    // 移除JD结果显示
+    document.getElementById('jd-result').innerHTML = '';
+
     if (!resumeInput.files.length) {
         alert('Please select at least one resume file.');
         return;
@@ -488,131 +503,184 @@ document.getElementById('submit-btn').addEventListener('click', async function()
         return;
     }
 
-    const formData = new FormData();
-    // 按照 Resume_0, Resume_1, ... 命名简历文件
-    Array.from(resumeInput.files).forEach((file, idx) => {
-        formData.append(`Resume_${idx}`, file);
-    });
-    // JD 文件命名为 Job_Description
-    formData.append('Job_Description', jdInput.files[0]);
-    // Instruction 作为文本文件传递（无论是否为空都传，空则为NIL）
-    let instructionValue = document.getElementById('instruction-input').value;
-    if (!instructionValue || instructionValue.trim().length === 0) {
-        instructionValue = 'NIL';
-    }
-    const instructionBlob = new Blob([instructionValue], { type: 'text/plain' });
-    formData.append('Instruction', instructionBlob, 'instruction.txt');
-
-    // Disable button to prevent duplicate submissions
-    const submitBtn = document.getElementById('submit-btn');
+    // 禁用按钮
     submitBtn.disabled = true;
     submitBtn.textContent = 'Processing...';
 
+    // 进度条处理
+    let progressBar = document.getElementById('progress-bar');
+    if (!progressBar) {
+        progressBar = document.createElement('div');
+        progressBar.id = 'progress-bar';
+        progressBar.style.position = 'fixed';
+        progressBar.style.top = '50%';
+        progressBar.style.left = 'calc(50% + 135px)';
+        progressBar.style.transform = 'translate(-50%, -50%)';
+        progressBar.style.background = '#fff';
+        progressBar.style.boxShadow = '0 2px 12px 0 rgba(0,0,0,0.10)';
+        progressBar.style.borderRadius = '12px';
+        progressBar.style.padding = '32px 48px';
+        progressBar.style.zIndex = '300';
+        progressBar.style.display = 'flex';
+        progressBar.style.flexDirection = 'column';
+        progressBar.style.alignItems = 'center';
+        progressBar.style.minWidth = '260px';
+        progressBar.innerHTML = `
+            <div id="progress-bar-text" style="font-size:22px;color:#0071e3;font-weight:600;margin-bottom:18px;">JD Processing.</div>
+            <div style="width:220px;height:12px;background:#e0e6ed;border-radius:6px;overflow:hidden;">
+                <div id="progress-bar-inner" style="height:100%;width:0%;background:linear-gradient(90deg,#0071e3 0%,#2997ff 100%);transition:width 0.3s;"></div>
+            </div>
+        `;
+        document.querySelector('.content').appendChild(progressBar);
+    } else {
+        progressBar.style.display = 'flex';
+        document.getElementById('progress-bar-text').textContent = 'JD Processing.';
+        document.getElementById('progress-bar-inner').style.width = '0%';
+    }
+
+    // 1. 先上传JD
+    let jdJson = null;
     try {
-        const response = await fetch('https://robinli.app.n8n.cloud/webhook/resume-miner', { //n8n URL
+        const jdForm = new FormData();
+        jdForm.append('Job_Description', jdInput.files[0]);
+        // Instruction 作为文本文件传递（无论是否为空都传，空则为NIL）
+        let instructionValue = document.getElementById('instruction-input').value;
+        if (!instructionValue || instructionValue.trim().length === 0) {
+            instructionValue = 'NIL';
+        }
+        const instructionBlob = new Blob([instructionValue], { type: 'text/plain' });
+        jdForm.append('Instruction', instructionBlob, 'instruction.txt');
+
+        const jdResp = await fetch('https://robinli.app.n8n.cloud/webhook/jd', {
             method: 'POST',
-            body: formData
+            body: jdForm
+        });
+        const jdText = await jdResp.text();
+        try {
+            jdJson = JSON.parse(jdText);
+        } catch (e) {
+            throw new Error('JD response is not valid JSON: ' + jdText);
+        }
+        if (!jdResp.ok) {
+            throw new Error(jdJson.error || jdJson.message || 'JD upload failed');
+        }
+        // 不再显示JD解析结果
+    } catch (err) {
+        if (progressBar) progressBar.style.display = 'none';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Submit';
+        aiErrorDetail.textContent = err.message || String(err);
+        aiErrorDetail.style.display = '';
+        return;
+    }
+
+    // 2. 逐个上传Resume，进度条动态更新
+    const resumeFiles = Array.from(resumeInput.files);
+    const allResults = [];
+    let dynamicHeadersSet = new Set();
+    let dynamicHeaders = [];
+    let dynamicData = [];
+    let n = resumeFiles.length;
+
+    for (let i = 0; i < n; i++) {
+        const resumeFile = resumeFiles[i];
+        // 更新进度条文本和进度
+        if (progressBar) {
+            document.getElementById('progress-bar-text').textContent = `Resume Processing ${i + 1} / ${n}`;
+            document.getElementById('progress-bar-inner').style.width = `${Math.round(((i) / n) * 100)}%`;
+        }
+        try {
+            const resumeForm = new FormData();
+            resumeForm.append('Resume', resumeFile);
+            resumeForm.append('JD_Result', new Blob([JSON.stringify(jdJson)], { type: 'application/json' }), 'jd_result.json');
+
+            const resumeResp = await fetch('https://robinli.app.n8n.cloud/webhook/resume', {
+                method: 'POST',
+                body: resumeForm
+            });
+            const resumeText = await resumeResp.text();
+            let resumeJson;
+            try {
+                resumeJson = JSON.parse(resumeText);
+            } catch (e) {
+                throw new Error('Resume response is not valid JSON: ' + resumeText);
+            }
+            if (!resumeResp.ok) {
+                throw new Error(resumeJson.error || resumeJson.message || 'Resume upload failed');
+            }
+            // 附加文件名
+            resumeJson.__filename = resumeFile.name;
+            allResults.push(resumeJson);
+
+            // 动态收集所有字段
+            Object.keys(resumeJson).forEach(k => dynamicHeadersSet.add(k));
+            // 保证__filename第一列
+            dynamicHeaders = ['__filename', ...Array.from(dynamicHeadersSet).filter(k => k !== '__filename')];
+
+            // 构造二维数组
+            dynamicData = [dynamicHeaders.map(h => h === '__filename' ? 'Resume File' : h)];
+            allResults.forEach(r => {
+                dynamicData.push(dynamicHeaders.map(h => r[h] !== undefined ? r[h] : ''));
+            });
+
+            // 可选：实时预览表格（如不需要可注释掉）
+            // const ws = XLSX.utils.aoa_to_sheet(dynamicData);
+            // const html = XLSX.utils.sheet_to_html(ws, {header: "", editable: false});
+            // document.getElementById('result-table').innerHTML = html;
+
+        } catch (err) {
+            if (progressBar) progressBar.style.display = 'none';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Submit';
+            aiErrorDetail.textContent = `Error processing ${resumeFile.name}: ` + (err.message || String(err));
+            aiErrorDetail.style.display = '';
+            return;
+        }
+    }
+
+    // 为每个简历结果分配唯一的 SN 编号（1, 2, 3...）
+    allResults.forEach((result, idx) => {
+        result.SN = idx + 1;
+    });
+
+    // 进度条100%
+    if (progressBar) {
+        document.getElementById('progress-bar-text').textContent = `Resume Processing ${n} / ${n}`;
+        document.getElementById('progress-bar-inner').style.width = '100%';
+    }
+
+    // 3. 整合所有结果，渲染表格和下载按钮
+    if (progressBar) progressBar.style.display = 'none';
+    try {
+        // 重新收集所有字段，确保 SN 字段包含在表头
+        Object.keys(allResults[0] || {}).forEach(k => dynamicHeadersSet.add(k));
+        dynamicHeaders = ['__filename', ...Array.from(dynamicHeadersSet).filter(k => k !== '__filename')];
+
+        // 重新构造二维数组
+        dynamicData = [dynamicHeaders.map(h => h === '__filename' ? 'Resume File' : h)];
+        allResults.forEach(r => {
+            dynamicData.push(dynamicHeaders.map(h => r[h] !== undefined ? r[h] : ''));
         });
 
-        // 清除并隐藏错误栏
-        const aiErrorDetail = document.getElementById('ai-error-detail');
-        aiErrorDetail.textContent = '';
-        aiErrorDetail.style.display = 'none';
+        // 用SheetJS生成最终表格和Excel下载
+        const ws = XLSX.utils.aoa_to_sheet(dynamicData);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Results');
 
-        // 检查响应类型
-        const contentType = response.headers.get('Content-Type') || '';
-        if (response.ok && (contentType.includes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') || contentType.includes('application/octet-stream'))) {
-            // 处理二进制 xlsx 文件
-            const blob = await response.blob();
+        // 预览HTML表格
+        const html = XLSX.utils.sheet_to_html(ws, {header: "", editable: false});
+        document.getElementById('result-table').innerHTML = html;
 
-            // 尝试从 Content-Disposition 获取文件名
-            let filename = 'result.xlsx';
-            const disposition = response.headers.get('Content-Disposition');
-            if (disposition && disposition.includes('filename=')) {
-                const match = disposition.match(/filename="?([^"]+)"?/);
-                if (match && match[1]) {
-                    filename = decodeURIComponent(match[1]);
-                }
-            }
+        document.getElementById('excel-filename').textContent = 'Generated file: results.xlsx';
+        const downloadBtn = document.getElementById('download-btn');
+        downloadBtn.onclick = function() {
+            XLSX.writeFile(wb, 'results.xlsx');
+        };
+        document.getElementById('download-section').style.display = '';
 
-            // 生成下载链接
-            const url = URL.createObjectURL(blob);
-            document.getElementById('excel-filename').textContent = `Generated file: ${filename}`;
-            const downloadBtn = document.getElementById('download-btn');
-            downloadBtn.onclick = function() {
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-            };
-            document.getElementById('download-section').style.display = '';
-
-            // 解析Excel并渲染为HTML表格
-            const reader = new FileReader();
-            reader.onload = function(e) {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, {type: 'array'});
-                // 默认显示第一个sheet
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                const html = XLSX.utils.sheet_to_html(worksheet, {header: "", editable: false});
-                document.getElementById('result-table').innerHTML = html;
-            };
-            reader.readAsArrayBuffer(blob);
-        } else {
-            // 不是二进制，尝试解析为JSON或文本
-            let result;
-            let isJson = false;
-            const text = await response.text();
-            try {
-                result = JSON.parse(text);
-                isJson = true;
-            } catch (e) {
-                result = text;
-            }
-
-            // 处理 n8n 返回的内容
-            if (response.ok) {
-                // 如果有table_html，显示表格
-                if (isJson && result.table_html) {
-                    document.getElementById('result-table').innerHTML = result.table_html;
-                } else if (isJson && result.message) {
-                    document.getElementById('result-table').innerHTML = '';
-                    document.getElementById('excel-filename').textContent = result.message || 'Success';
-                } else if (!isJson && typeof result === 'string') {
-                    document.getElementById('result-table').innerHTML = `<pre>${result}</pre>`;
-                } else {
-                    document.getElementById('result-table').innerHTML = '';
-                    aiErrorDetail.textContent = 'Unknown response from server.';
-                    aiErrorDetail.style.display = '';
-                }
-                document.getElementById('download-section').style.display = 'none';
-            } else {
-                // 错误响应
-                let errorMsg = '';
-                if (isJson && result.error) {
-                    errorMsg = result.error;
-                } else if (isJson && result.message) {
-                    errorMsg = result.message;
-                } else if (!isJson && typeof result === 'string') {
-                    errorMsg = result;
-                } else {
-                    errorMsg = 'Upload failed';
-                }
-                alert(errorMsg);
-                document.getElementById('download-section').style.display = 'none';
-                aiErrorDetail.textContent = errorMsg;
-                aiErrorDetail.style.display = '';
-            }
-        }
     } catch (err) {
-        alert('Network or server error: ' + err);
-        document.getElementById('download-section').style.display = 'none';
-        const aiErrorDetail = document.getElementById('ai-error-detail');
-        aiErrorDetail.textContent = '';
-        aiErrorDetail.style.display = 'none';
+        aiErrorDetail.textContent = 'Failed to compile results: ' + (err.message || String(err));
+        aiErrorDetail.style.display = '';
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Submit';
@@ -621,3 +689,5 @@ document.getElementById('submit-btn').addEventListener('click', async function()
 </script>
 </body>
 </html>
+
+
